@@ -11,3 +11,4 @@ backend/supabase/.branches/
 
 # Local semantic index
 .codegraph/
+.vscode/
