@@ -1,0 +1,12 @@
+# local env files
+.env
+.env*.local
+
+# Node/Supabase CLI dependencies
+node_modules/
+npm-debug.log*
+
+# Supabase local state and generated files
+supabase/.temp/
+supabase/.branches/
+

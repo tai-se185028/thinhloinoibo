@@ -1,0 +1,13 @@
+# local env files
+.env
+.env*.local
+
+# Dependencies and generated output
+**/node_modules/
+frontend/.dart_tool/
+frontend/build/
+backend/supabase/.temp/
+backend/supabase/.branches/
+
+# Local semantic index
+.codegraph/

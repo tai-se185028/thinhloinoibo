@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "PackFlow Web (local env, port 3000)",
+      "type": "dart",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/frontend",
+      "program": "${workspaceFolder}/frontend/lib/main.dart",
+      "deviceId": "chrome",
+      "toolArgs": [
+        "--web-port=3000",
+        "--dart-define-from-file=${workspaceFolder}/frontend/.env.local"
+      ]
+    }
+  ]
+}
