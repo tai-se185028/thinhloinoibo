@@ -11,6 +11,7 @@ import {
   Gauge,
   KeyRound,
   LogOut,
+  Mail,
   Menu,
   Pencil,
   Plus,
@@ -377,13 +378,15 @@ function Login() {
         <div className="absolute -left-28 top-1/4 size-96 rounded-full bg-blue-600/15 blur-[120px]" />
         <div className="absolute -right-20 bottom-16 size-80 rounded-full bg-indigo-500/15 blur-[100px]" />
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b0a_1px,transparent_1px),linear-gradient(to_bottom,#1e293b0a_1px,transparent_1px)] bg-[size:4rem_4rem]" />
-        
+
         <div className="relative flex items-center gap-3.5">
           <div className="grid size-11 place-items-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-sm font-black text-white shadow-lg shadow-blue-500/30 ring-1 ring-white/20">
             TL
           </div>
           <div>
-            <p className="text-lg font-bold tracking-tight text-white">Thịnh Lợi</p>
+            <p className="text-lg font-bold tracking-tight text-white">
+              Thịnh Lợi
+            </p>
             <p className="text-xs text-slate-400">Quản lý kho hàng & nội bộ</p>
           </div>
         </div>
@@ -429,7 +432,8 @@ function Login() {
         </div>
 
         <p className="relative text-xs text-slate-500">
-          © {new Date().getFullYear()} Công ty TNHH Thịnh Lợi • Dành riêng cho nhân viên nội bộ
+          © {new Date().getFullYear()} Công ty TNHH Thịnh Lợi • Dành riêng cho
+          nhân viên nội bộ
         </p>
       </section>
 
@@ -441,7 +445,9 @@ function Login() {
             </div>
             <div>
               <p className="font-bold text-slate-900">Thịnh Lợi</p>
-              <p className="text-xs text-muted-foreground">Quản lý kho hàng & nội bộ</p>
+              <p className="text-xs text-muted-foreground">
+                Quản lý kho hàng & nội bộ
+              </p>
             </div>
           </div>
 
@@ -488,7 +494,11 @@ function Login() {
                   onClick={() => setShowPassword((value) => !value)}
                   aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
                 >
-                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  {showPassword ? (
+                    <EyeOff className="size-4" />
+                  ) : (
+                    <Eye className="size-4" />
+                  )}
                 </Button>
               </div>
             </F>
@@ -522,7 +532,9 @@ function Login() {
 
           <div className="mt-8 flex items-center justify-center gap-2 rounded-xl border border-slate-100 bg-slate-50/80 py-2.5 px-3 text-xs text-slate-500">
             <ShieldCheck className="size-4 text-emerald-600 shrink-0" />
-            <span>Chỉ tài khoản nhân viên đang hoạt động mới có thể truy cập</span>
+            <span>
+              Chỉ tài khoản nhân viên đang hoạt động mới có thể truy cập
+            </span>
           </div>
         </div>
       </section>
@@ -1562,7 +1574,7 @@ function PlateEditDialog({ open, onClose, setOpen, target, voucher }) {
 
       if (rowsUpdated === 0) {
         throw new Error(
-          "Cơ sở dữ liệu đang khóa cập nhật chứng từ này do chưa phân quyền hoặc chứng từ đã khóa. Vui lòng chạy file migration SQL trên Supabase SQL Editor để mở quyền cho mọi trạng thái."
+          "Cơ sở dữ liệu đang khóa cập nhật chứng từ này do chưa phân quyền hoặc chứng từ đã khóa. Vui lòng chạy file migration SQL trên Supabase SQL Editor để mở quyền cho mọi trạng thái.",
         );
       }
     }, "Đã cập nhật biển số xe thành công.");
@@ -1817,7 +1829,9 @@ function Docs() {
                 <div className="flex items-center justify-between rounded-md bg-muted/60 px-2.5 py-1 text-sm font-semibold">
                   <div className="flex items-center gap-2">
                     <Truck className="size-4 text-primary" />
-                    <span>Biển số xe: {formatVehiclePlate(x.vehicle_plate)}</span>
+                    <span>
+                      Biển số xe: {formatVehiclePlate(x.vehicle_plate)}
+                    </span>
                   </div>
                   <Button
                     variant="ghost"
@@ -2145,8 +2159,7 @@ function Invoices() {
                     <div className="flex items-center gap-2">
                       <Truck className="size-4 text-primary" />
                       <span>
-                        Biển số xe:{" "}
-                        {formatVehiclePlate(currentPlate)}
+                        Biển số xe: {formatVehiclePlate(currentPlate)}
                       </span>
                     </div>
                     <Button
@@ -2156,7 +2169,8 @@ function Invoices() {
                       title="Sửa biển số xe"
                       onClick={() =>
                         setPlateTarget({
-                          voucherId: linkedVoucher?.id || x.outbound_voucher_id || null,
+                          voucherId:
+                            linkedVoucher?.id || x.outbound_voucher_id || null,
                           invoiceId: x.id,
                           plate: currentPlate,
                           code: x.invoice_code,
@@ -2175,7 +2189,8 @@ function Invoices() {
                       className="h-6 px-1.5 text-xs text-primary"
                       onClick={() =>
                         setPlateTarget({
-                          voucherId: linkedVoucher?.id || x.outbound_voucher_id || null,
+                          voucherId:
+                            linkedVoucher?.id || x.outbound_voucher_id || null,
                           invoiceId: x.id,
                           plate: "",
                           code: x.invoice_code,
@@ -2187,99 +2202,128 @@ function Invoices() {
                   </div>
                 )}
               </CardHeader>
-            <CardContent className="text-xl font-bold">
-              {cash(x.total_amount)}
-            </CardContent>
-            <CardFooter className="flex-wrap justify-end gap-2">
-              {x.status === "draft" && (
-                <>
-                  <Button
-                    variant="destructive"
-                    onClick={() =>
-                      d.run(async () => {
-                        const { error } = await supabase
-                          .from("invoices")
-                          .delete()
-                          .eq("id", x.id)
-                          .eq("status", "draft");
-                        if (error) throw error;
-                      }, "Đã xóa hóa đơn nháp.")
-                    }
-                  >
-                    Xóa nháp
-                  </Button>
+              <CardContent className="text-xl font-bold">
+                {cash(x.total_amount)}
+              </CardContent>
+              <CardFooter className="flex-wrap justify-end gap-2">
+                {x.status === "draft" && (
+                  <>
+                    <Button
+                      variant="destructive"
+                      onClick={() =>
+                        d.run(async () => {
+                          const { error } = await supabase
+                            .from("invoices")
+                            .delete()
+                            .eq("id", x.id)
+                            .eq("status", "draft");
+                          if (error) throw error;
+                        }, "Đã xóa hóa đơn nháp.")
+                      }
+                    >
+                      Xóa nháp
+                    </Button>
+                    <Button
+                      onClick={() =>
+                        d.run(async () => {
+                          const { error } = await supabase.rpc(
+                            "finalize_invoice",
+                            { p_invoice_id: x.id },
+                          );
+                          if (error) throw error;
+                        }, "Đã phát hành hóa đơn.")
+                      }
+                    >
+                      Phát hành
+                    </Button>
+                  </>
+                )}
+                {x.status === "finalized" && x.payment_status !== "paid" && (
                   <Button
                     onClick={() =>
                       d.run(async () => {
                         const { error } = await supabase.rpc(
-                          "finalize_invoice",
+                          "mark_invoice_paid",
                           { p_invoice_id: x.id },
                         );
                         if (error) throw error;
-                      }, "Đã phát hành hóa đơn.")
+
+                        // Tự động gửi email kèm file PDF hóa đơn tới Gmail quản lý
+                        const managerEmail = d.settings?.email?.trim();
+                        if (managerEmail) {
+                          toast.info(
+                            `Đang gửi hóa đơn PDF tới Gmail quản lý (${managerEmail})…`,
+                          );
+                          await sendPaidInvoiceEmail(x, d)
+                            .then((res) => {
+                              if (res.success) {
+                                toast.success(
+                                  `Đã gửi hóa đơn PDF thành công tới ${managerEmail}`,
+                                );
+                              } else {
+                                toast.error(
+                                  `Chưa gửi được email: ${res.error || "Vui lòng kiểm tra lại cấu hình Gmail trên Vercel."}`,
+                                );
+                              }
+                            })
+                            .catch((err) => {
+                              console.warn("Lỗi gửi email:", err);
+                              toast.error(`Lỗi gửi email: ${err.message}`);
+                            });
+                        } else {
+                          toast.warning(
+                            "Chưa cấu hình Email trong Cài đặt doanh nghiệp để nhận hóa đơn.",
+                          );
+                        }
+                      }, "Đã cập nhật trạng thái đã thanh toán.")
                     }
                   >
-                    Phát hành
+                    Đánh dấu đã thanh toán
                   </Button>
-                </>
-              )}
-              {x.status === "finalized" && x.payment_status !== "paid" && (
-                <Button
-                  onClick={() =>
-                    d.run(async () => {
-                      const { error } = await supabase.rpc(
-                        "mark_invoice_paid",
-                        { p_invoice_id: x.id },
-                      );
-                      if (error) throw error;
-
-                      // Tự động gửi email kèm file PDF hóa đơn tới Gmail quản lý
+                )}
+                {x.status === "finalized" && x.payment_status === "paid" && (
+                  <Button
+                    variant="outline"
+                    title="Gửi file hóa đơn PDF qua email cho quản lý"
+                    onClick={async () => {
                       const managerEmail = d.settings?.email?.trim();
-                      if (managerEmail) {
-                        toast.info(
-                          `Đang gửi hóa đơn PDF tới Gmail quản lý (${managerEmail})…`
-                        );
-                        sendPaidInvoiceEmail(x, d)
-                          .then((res) => {
-                            if (res.success) {
-                              toast.success(
-                                `Đã gửi hóa đơn PDF thành công tới ${managerEmail}`
-                              );
-                            } else {
-                              toast.error(
-                                `Chưa gửi được email: ${res.error || "Vui lòng kiểm tra lại cấu hình Gmail trên Vercel."}`
-                              );
-                            }
-                          })
-                          .catch((err) => {
-                            console.warn("Lỗi gửi email:", err);
-                            toast.error(`Lỗi gửi email: ${err.message}`);
-                          });
-                      } else {
+                      if (!managerEmail) {
                         toast.warning(
-                          "Chưa cấu hình Email trong Cài đặt doanh nghiệp để nhận hóa đơn."
+                          "Chưa cấu hình Email trong Cài đặt doanh nghiệp để nhận hóa đơn.",
+                        );
+                        return;
+                      }
+                      toast.info(`Đang gửi hóa đơn PDF tới ${managerEmail}…`);
+                      const res = await sendPaidInvoiceEmail(x, d);
+                      if (res.success) {
+                        toast.success(
+                          `Đã gửi hóa đơn PDF thành công tới ${managerEmail}`,
+                        );
+                      } else {
+                        toast.error(
+                          `Gửi email thất bại: ${res.error || "Vui lòng kiểm tra lại cấu hình Gmail trên Vercel."}`,
                         );
                       }
-                    }, "Đã cập nhật trạng thái đã thanh toán.")
-                  }
+                    }}
+                  >
+                    <Mail className="size-4" />
+                    Gửi email
+                  </Button>
+                )}
+                <Button
+                  variant="secondary"
+                  onClick={() => previewInvoicePdf(x, d)}
                 >
-                  Đánh dấu đã thanh toán
+                  Xem trước
                 </Button>
-              )}
-              <Button
-                variant="secondary"
-                onClick={() => previewInvoicePdf(x, d)}
-              >
-                Xem trước
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => downloadInvoicePdf(x, d)}
-              >
-                In / Xuất PDF
-              </Button>
-            </CardFooter>
-          </Card>
+                <Button
+                  variant="outline"
+                  onClick={() => downloadInvoicePdf(x, d)}
+                >
+                  In / Xuất PDF
+                </Button>
+              </CardFooter>
+            </Card>
           );
         })}
       </div>
@@ -2560,7 +2604,9 @@ function ChangePasswordCard() {
       z
         .object({
           oldPassword: z.string().min(1, "không được để trống"),
-          newPassword: z.string().min(8, "mật khẩu mới phải có ít nhất 8 ký tự"),
+          newPassword: z
+            .string()
+            .min(8, "mật khẩu mới phải có ít nhất 8 ký tự"),
           confirmPassword: z.string().min(1, "không được để trống"),
         })
         .refine((data) => data.newPassword === data.confirmPassword, {

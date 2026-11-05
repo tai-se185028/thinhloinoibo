@@ -2,3 +2,7 @@ project_id = "mmukxhbucfectvhfbame"
 
 [functions.login-with-username]
 verify_jwt = false
+
+[functions.send-invoice-paid-email]
+# The function validates the session through auth.getUser before accessing data.
+verify_jwt = false

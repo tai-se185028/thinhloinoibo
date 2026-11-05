@@ -259,8 +259,7 @@ function outboundPdf(voucher, data) {
                 border: [false, false, false, false],
               },
               {
-                text:
-                  voucher.dispatch_reason || voucher.note || "\u00A0",
+                text: voucher.dispatch_reason || voucher.note || "\u00A0",
                 fontSize: 8.5,
                 border: [false, false, false, true],
               },
@@ -380,16 +379,7 @@ export function downloadInvoicePdf(invoice, data) {
 }
 
 export function getInvoicePdfBase64(invoice, data) {
-  return new Promise((resolve, reject) => {
-    try {
-      const doc = invoicePdf(invoice, data);
-      doc.getBase64((base64) => {
-        resolve(base64);
-      });
-    } catch (err) {
-      reject(err);
-    }
-  });
+  return invoicePdf(invoice, data).getBase64();
 }
 
 export function previewOutboundPdf(voucher, data) {

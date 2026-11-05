@@ -1,155 +1,163 @@
+import { Buffer } from "node:buffer";
+import process from "node:process";
 import nodemailer from "npm:nodemailer@6.9.16";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
-const corsHeaders = {
+const escapeHtml = (value) =>
+  String(value ?? "").replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
+  );
+
+async function handler(req, res) {
+  if (req.method !== "POST")
+    return res.status(405).json({ message: "Phương thức không được hỗ trợ." });
+  try {
+    const token = req.headers.authorization?.match(/^Bearer (.+)$/i)?.[1];
+    if (!token)
+      return res
+        .status(401)
+        .json({ message: "Vui lòng đăng nhập để gửi email." });
+    const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const key =
+      process.env.SUPABASE_ANON_KEY ||
+      process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    if (!url || !key)
+      throw new Error("Chưa cấu hình kết nối Supabase cho máy chủ gửi email.");
+    const db = createClient(url, key, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false },
+    });
+    const { data: auth, error: authError } = await db.auth.getUser(token);
+    if (authError || !auth.user)
+      return res
+        .status(401)
+        .json({ message: "Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại." });
+    const { invoice_id, pdf_base64 } = req.body || {};
+    if (!/^[0-9a-f-]{36}$/i.test(invoice_id || ""))
+      return res.status(400).json({ message: "Mã hóa đơn không hợp lệ." });
+    const [invoiceResult, settingsResult] = await Promise.all([
+      db
+        .from("invoices")
+        .select(
+          "id,invoice_code,customer_id,total_amount,status,payment_status",
+        )
+        .eq("id", invoice_id)
+        .single(),
+      db
+        .from("business_settings")
+        .select("email,business_name")
+        .limit(1)
+        .single(),
+    ]);
+    if (invoiceResult.error)
+      return res
+        .status(403)
+        .json({ message: "Không thể truy cập hóa đơn này." });
+    const invoice = invoiceResult.data;
+    if (invoice.status !== "finalized" || invoice.payment_status !== "paid")
+      return res
+        .status(400)
+        .json({
+          message:
+            "Hóa đơn phải được phát hành và thanh toán trước khi gửi thông báo.",
+        });
+    const recipient = settingsResult.data?.email?.trim();
+    if (
+      settingsResult.error ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient || "")
+    )
+      return res
+        .status(400)
+        .json({
+          message:
+            "Vui lòng cấu hình email hợp lệ trong thông tin doanh nghiệp.",
+        });
+    const user = process.env.GMAIL_USER?.trim();
+    const pass = (process.env.GMAIL_APP_PASSWORD || "").replace(/\s/g, "");
+    if (!user || !pass)
+      throw new Error("Máy chủ chưa cấu hình tài khoản Gmail gửi thông báo.");
+    if (
+      pdf_base64 &&
+      (typeof pdf_base64 !== "string" ||
+        pdf_base64.length > 4_000_000 ||
+        !pdf_base64.startsWith("JVBERi0"))
+    )
+      return res
+        .status(400)
+        .json({
+          message: "Tệp PDF không hợp lệ hoặc vượt quá dung lượng cho phép.",
+        });
+    const { data: customer } = await db
+      .from("customers")
+      .select("name")
+      .eq("id", invoice.customer_id)
+      .maybeSingle();
+    const amount =
+      new Intl.NumberFormat("en-US").format(Number(invoice.total_amount)) +
+      " ₫";
+    const date = new Date().toLocaleString("vi-VN", {
+      timeZone: "Asia/Ho_Chi_Minh",
+    });
+    const transport = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,
+      auth: { user, pass },
+      connectionTimeout: 15000,
+      socketTimeout: 20000,
+    });
+    await transport.sendMail({
+      from: { name: "Thịnh Lợi", address: user },
+      to: recipient,
+      subject: `[Thịnh Lợi] Hóa đơn ${invoice.invoice_code} đã thanh toán`,
+      text: `Hóa đơn: ${invoice.invoice_code}\nKhách hàng: ${customer?.name || ""}\nTổng tiền: ${amount}\nTrạng thái: Đã thanh toán\nThời gian gửi: ${date}`,
+      html: `<h2>THÔNG BÁO HÓA ĐƠN ĐÃ THANH TOÁN</h2><p>Hóa đơn: <strong>${escapeHtml(invoice.invoice_code)}</strong></p><p>Khách hàng: ${escapeHtml(customer?.name)}</p><p>Tổng tiền: <strong>${escapeHtml(amount)}</strong></p><p>Trạng thái: Đã thanh toán</p><p>Thời gian gửi: ${escapeHtml(date)}</p>`,
+      attachments: pdf_base64
+        ? [
+            {
+              filename: `${invoice.invoice_code}.pdf`,
+              content: Buffer.from(pdf_base64, "base64"),
+              contentType: "application/pdf",
+            },
+          ]
+        : [],
+    });
+    return res.status(200).json({ success: true, sentTo: recipient });
+  } catch (error) {
+    const message =
+      error.code === "EAUTH"
+        ? "Gmail từ chối đăng nhập. Vui lòng kiểm tra mật khẩu ứng dụng trên máy chủ."
+        : error.code === "ETIMEDOUT" || error.code === "ESOCKET"
+          ? "Không thể kết nối Gmail. Vui lòng thử gửi lại email."
+          : "Chưa gửi được email. Vui lòng kiểm tra cấu hình máy chủ và thử lại.";
+    return res.status(500).json({ message });
+  }
+}
+
+
+
+const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
-
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
-
-  if (req.method !== "POST") {
-    return new Response(JSON.stringify({ message: "Method not allowed" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
+Deno.serve(async (request) => {
+  if (request.method === "OPTIONS") return new Response("ok", { headers: cors });
+  let status = 200;
+  let result;
   try {
-    const {
-      invoice_code,
-      manager_email,
-      customer_name,
-      total_amount,
-      payment_date,
-      pdf_base64,
-    } = await req.json();
-
-    const gmailUser = Deno.env.get("GMAIL_USER");
-    const gmailPass =
-      Deno.env.get("GMAIL_APP_PASSWORD") || Deno.env.get("GMAIL_PASS");
-
-    if (!gmailUser || !gmailPass) {
-      return new Response(
-        JSON.stringify({
-          message:
-            "Chưa cấu hình biến môi trường GMAIL_USER và GMAIL_APP_PASSWORD trên Supabase Secrets.",
-        }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    if (!manager_email) {
-      return new Response(
-        JSON.stringify({ message: "Thiếu email quản lý để nhận hóa đơn." }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: gmailUser,
-        pass: gmailPass,
-      },
+    await handler({ method: request.method, headers: { authorization: request.headers.get("authorization") }, body: request.method === "POST" ? await request.json() : {} }, {
+      status(code) { status = code; return this; },
+      json(value) { result = value; return this; },
     });
-
-    const formattedAmount =
-      new Intl.NumberFormat("vi-VN").format(Number(total_amount) || 0) + " ₫";
-    const formattedDate = payment_date || new Date().toLocaleDateString("vi-VN");
-
-    const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
-        <div style="text-align: center; border-bottom: 2px solid #2563eb; padding-bottom: 16px; margin-bottom: 20px;">
-          <h2 style="color: #1e293b; margin: 0 0 6px 0;">THÔNG BÁO THANH TOÁN THÀNH CÔNG</h2>
-          <p style="color: #64748b; margin: 0; font-size: 14px;">Hệ thống Quản lý Nội bộ Thịnh Lợi</p>
-        </div>
-
-        <p style="font-size: 15px; color: #334155;">Kính gửi <strong>Quản lý</strong>,</p>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">
-          Hóa đơn <strong>${invoice_code}</strong> vừa được xác nhận thanh toán thành công trên hệ thống. Dưới đây là thông tin chi tiết:
-        </p>
-
-        <div style="background-color: #f8fafc; border-radius: 8px; padding: 16px; margin: 20px 0; border: 1px solid #e2e8f0;">
-          <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-            <tr>
-              <td style="padding: 6px 0; color: #64748b; width: 140px;">Mã hóa đơn:</td>
-              <td style="padding: 6px 0; color: #0f172a; font-weight: bold;">${invoice_code}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0; color: #64748b;">Khách hàng:</td>
-              <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">${customer_name || "—"}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0; color: #64748b;">Số tiền:</td>
-              <td style="padding: 6px 0; color: #16a34a; font-weight: bold; font-size: 16px;">${formattedAmount}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0; color: #64748b;">Trạng thái:</td>
-              <td style="padding: 6px 0; color: #16a34a; font-weight: 600;">Đã thanh toán</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0; color: #64748b;">Ngày thanh toán:</td>
-              <td style="padding: 6px 0; color: #0f172a;">${formattedDate}</td>
-            </tr>
-          </table>
-        </div>
-
-        <p style="font-size: 14px; color: #475569; line-height: 1.5;">
-          📎 <em>File hóa đơn PDF chi tiết đã được đính kèm theo thư này để lưu trữ và kiểm tra.</em>
-        </p>
-
-        <div style="margin-top: 30px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; text-align: center;">
-          Email tự động được gửi từ Hệ thống Quản lý Thịnh Lợi.
-        </div>
-      </div>
-    `;
-
-    const attachments = [];
-    if (pdf_base64) {
-      attachments.push({
-        filename: `${invoice_code}.pdf`,
-        content: pdf_base64,
-        encoding: "base64",
-      });
-    }
-
-    const info = await transporter.sendMail({
-      from: `"Thịnh Lợi Quản Lý Kho" <${gmailUser}>`,
-      to: manager_email,
-      subject: `[Thịnh Lợi] Hóa đơn ${invoice_code} đã thanh toán thành công - ${formattedAmount}`,
-      html: htmlContent,
-      attachments,
-    });
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        messageId: info.messageId,
-        sentTo: manager_email,
-      }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
-  } catch (error) {
-    return new Response(
-      JSON.stringify({ message: (error as Error).message }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
+  } catch {
+    status = 400;
+    result = { message: "Yêu cầu gửi email không hợp lệ." };
   }
+  return new Response(JSON.stringify(result), { status, headers: { ...cors, "Content-Type": "application/json" } });
 });
 

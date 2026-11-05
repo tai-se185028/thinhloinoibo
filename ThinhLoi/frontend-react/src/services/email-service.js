@@ -1,12 +1,25 @@
-import { supabase } from "@/lib/supabase";
 import { getInvoicePdfBase64 } from "@/features/documents/pdf";
+import { supabase } from "@/lib/supabase";
+
+async function withTimeout(promise, milliseconds, message) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), milliseconds);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export async function sendPaidInvoiceEmail(invoice, data) {
   const managerEmail = data.settings?.email?.trim();
   if (!managerEmail) {
     return {
       success: false,
-      reason: "missing_email",
       error: "Chưa cấu hình Email trong Cài đặt doanh nghiệp.",
     };
   }
@@ -17,12 +30,20 @@ export async function sendPaidInvoiceEmail(invoice, data) {
 
   let pdfBase64 = null;
   try {
-    pdfBase64 = await getInvoicePdfBase64(invoice, data);
+    pdfBase64 = await withTimeout(
+      getInvoicePdfBase64(invoice, data),
+      30000,
+      "Tạo PDF quá thời gian chờ. Vui lòng thử lại.",
+    );
   } catch (err) {
-    console.error("Không thể xuất file PDF hóa đơn để đính kèm email:", err);
+    return {
+      success: false,
+      error: `Không thể tạo PDF đính kèm: ${err.message}`,
+    };
   }
 
   const payload = {
+    invoice_id: invoice.id,
     invoice_code: invoice.invoice_code,
     manager_email: managerEmail,
     customer_name: customerName,
@@ -31,47 +52,47 @@ export async function sendPaidInvoiceEmail(invoice, data) {
     pdf_base64: pdfBase64,
   };
 
-  // 1. Thử gọi API Vercel Serverless /api/send-invoice-email
+  // Gửi trực tiếp qua Vercel API của dự án React (/api/send-invoice-email)
   try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session)
+      return { success: false, error: "Vui lòng đăng nhập lại để gửi email." };
     const res = await fetch("/api/send-invoice-email", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(45000),
     });
     const json = await res.json().catch(() => ({}));
-    if (res.ok && json.success) {
-      return { success: true, via: "vercel", data: json };
-    }
-    if (json.message) {
-      return { success: false, error: json.message, via: "vercel" };
-    }
     if (res.status === 404) {
-      console.warn("/api/send-invoice-email trả về 404");
+      return {
+        success: false,
+        error: import.meta.env.DEV
+          ? "API gửi email local chưa chạy. Hãy khởi động lại npm run dev trong thư mục frontend-react."
+          : "Chưa triển khai API gửi email trên Vercel. Kiểm tra Root Directory trỏ tới frontend-react và deploy cả thư mục api, sau đó Redeploy.",
+      };
     }
+    if (res.ok && json.success) {
+      return { success: true, data: json };
+    }
+    return {
+      success: false,
+      error:
+        json.message ||
+        `Lỗi phản hồi từ máy chủ (${res.status}): Vui lòng kiểm tra lại cấu hình Gmail trên Vercel.`,
+    };
   } catch (err) {
-    console.warn("Lỗi khi kết nối tới /api/send-invoice-email:", err);
+    return {
+      success: false,
+      error:
+        err.name === "TimeoutError" || err.name === "AbortError"
+          ? "Máy chủ gửi email quá thời gian chờ. Vui lòng kiểm tra hộp thư trước khi gửi lại."
+          : `Không thể kết nối API gửi mail: ${err.message}`,
+    };
   }
-
-  // 2. Thử gọi Supabase Edge Function send-invoice-paid-email
-  try {
-    const { data: edgeRes, error: edgeErr } = await supabase.functions.invoke(
-      "send-invoice-paid-email",
-      { body: payload }
-    );
-    if (!edgeErr && edgeRes?.success) {
-      return { success: true, via: "supabase", data: edgeRes };
-    }
-    if (edgeErr?.message) {
-      return { success: false, error: edgeErr.message, via: "supabase" };
-    }
-  } catch (err) {
-    console.warn("Lỗi khi gọi Supabase Edge Function:", err);
-  }
-
-  return {
-    success: false,
-    reason: "service_not_configured",
-    error:
-      "Vercel chưa cập nhật biến môi trường GMAIL_USER và GMAIL_APP_PASSWORD. Bạn cần Redeploy trên Vercel.",
-  };
 }
