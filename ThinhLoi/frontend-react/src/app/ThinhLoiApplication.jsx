@@ -2245,14 +2245,15 @@ function Invoices() {
                               toast.success(
                                 `Đã gửi hóa đơn PDF thành công tới ${managerEmail}`
                               );
-                            } else if (res.reason === "service_not_configured") {
-                              toast.warning(
-                                "Chưa cấu hình GMAIL_USER và GMAIL_APP_PASSWORD trên Vercel/Supabase để gửi mail tự động."
+                            } else {
+                              toast.error(
+                                `Chưa gửi được email: ${res.error || "Vui lòng kiểm tra lại cấu hình Gmail trên Vercel."}`
                               );
                             }
                           })
                           .catch((err) => {
                             console.warn("Lỗi gửi email:", err);
+                            toast.error(`Lỗi gửi email: ${err.message}`);
                           });
                       } else {
                         toast.warning(

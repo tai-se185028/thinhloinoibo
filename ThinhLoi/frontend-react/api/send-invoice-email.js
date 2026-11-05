@@ -1,4 +1,115 @@
-import nodemailer from "nodemailer";
+import tls from "node:tls";
+
+function sendSmtpEmail({ user, pass, to, subject, html, attachments }) {
+  return new Promise((resolve, reject) => {
+    const cleanPass = (pass || "").replace(/\s+/g, "");
+    const boundary = "----=_Part_" + Date.now() + "_" + Math.random().toString(36).substring(2);
+
+    let mime = "";
+    mime += `From: "Thịnh Lợi Quản Lý Kho" <${user}>\r\n`;
+    mime += `To: <${to}>\r\n`;
+    mime += `Subject: =?UTF-8?B?${Buffer.from(subject, "utf-8").toString("base64")}?=\r\n`;
+    mime += `MIME-Version: 1.0\r\n`;
+    mime += `Content-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n`;
+
+    // HTML body
+    mime += `--${boundary}\r\n`;
+    mime += `Content-Type: text/html; charset=UTF-8\r\n`;
+    mime += `Content-Transfer-Encoding: base64\r\n\r\n`;
+    mime += Buffer.from(html, "utf-8").toString("base64") + "\r\n\r\n";
+
+    // Attachments
+    if (attachments && attachments.length > 0) {
+      for (const att of attachments) {
+        mime += `--${boundary}\r\n`;
+        mime += `Content-Type: ${att.contentType || "application/octet-stream"}; name="=?UTF-8?B?${Buffer.from(att.filename, "utf-8").toString("base64")}?="\r\n`;
+        mime += `Content-Disposition: attachment; filename="=?UTF-8?B?${Buffer.from(att.filename, "utf-8").toString("base64")}?="\r\n`;
+        mime += `Content-Transfer-Encoding: base64\r\n\r\n`;
+        const rawBase64 =
+          typeof att.content === "string"
+            ? att.content
+            : Buffer.from(att.content).toString("base64");
+        const chunked = rawBase64.match(/.{1,76}/g)?.join("\r\n") || rawBase64;
+        mime += chunked + "\r\n\r\n";
+      }
+    }
+    mime += `--${boundary}--\r\n`;
+
+    const socket = tls.connect(
+      {
+        host: "smtp.gmail.com",
+        port: 465,
+        rejectUnauthorized: true,
+      },
+      () => {}
+    );
+
+    let step = 0;
+    let buffer = "";
+
+    const timeout = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("Timeout khi kết nối tới Gmail SMTP (smtp.gmail.com:465)"));
+    }, 20000);
+
+    socket.on("data", (chunk) => {
+      buffer += chunk.toString();
+      const lines = buffer.split("\r\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line) continue;
+        const code = parseInt(line.substring(0, 3), 10);
+        const isLastLine = line.charAt(3) === " ";
+
+        if (!isLastLine) continue;
+
+        if (code >= 400) {
+          clearTimeout(timeout);
+          socket.write("QUIT\r\n");
+          socket.end();
+          return reject(new Error(`Gmail SMTP trả lời lỗi (${code}): ${line.substring(4)}`));
+        }
+
+        if (step === 0 && code === 220) {
+          step = 1;
+          socket.write("EHLO localhost\r\n");
+        } else if (step === 1 && code === 250) {
+          step = 2;
+          socket.write("AUTH LOGIN\r\n");
+        } else if (step === 2 && code === 334) {
+          step = 3;
+          socket.write(Buffer.from(user).toString("base64") + "\r\n");
+        } else if (step === 3 && code === 334) {
+          step = 4;
+          socket.write(Buffer.from(cleanPass).toString("base64") + "\r\n");
+        } else if (step === 4 && code === 235) {
+          step = 5;
+          socket.write(`MAIL FROM:<${user}>\r\n`);
+        } else if (step === 5 && code === 250) {
+          step = 6;
+          socket.write(`RCPT TO:<${to}>\r\n`);
+        } else if (step === 6 && code === 250) {
+          step = 7;
+          socket.write("DATA\r\n");
+        } else if (step === 7 && code === 354) {
+          step = 8;
+          socket.write(mime + "\r\n.\r\n");
+        } else if (step === 8 && code === 250) {
+          clearTimeout(timeout);
+          socket.write("QUIT\r\n");
+          socket.end();
+          return resolve({ success: true, messageId: line });
+        }
+      }
+    });
+
+    socket.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
+}
 
 export default async function handler(req, res) {
   // CORS configuration
@@ -29,13 +140,14 @@ export default async function handler(req, res) {
       pdf_base64,
     } = req.body || {};
 
-    const gmailUser = process.env.GMAIL_USER;
-    const gmailPass = process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASS;
+    const gmailUser = (process.env.GMAIL_USER || "").trim();
+    const rawPass = (process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASS || "").trim();
+    const gmailPass = rawPass.replace(/\s+/g, "");
 
     if (!gmailUser || !gmailPass) {
       return res.status(500).json({
         message:
-          "Chưa cấu hình biến môi trường GMAIL_USER và GMAIL_APP_PASSWORD trên Vercel.",
+          "Chưa tìm thấy biến môi trường GMAIL_USER hoặc GMAIL_APP_PASSWORD trên Vercel. Bạn cần Redeploy lại ứng dụng sau khi thêm biến môi trường.",
       });
     }
 
@@ -44,14 +156,6 @@ export default async function handler(req, res) {
         message: "Thiếu email quản lý để nhận hóa đơn.",
       });
     }
-
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: gmailUser,
-        pass: gmailPass,
-      },
-    });
 
     const formattedAmount =
       new Intl.NumberFormat("vi-VN").format(Number(total_amount) || 0) + " ₫";
@@ -108,25 +212,25 @@ export default async function handler(req, res) {
     if (pdf_base64) {
       attachments.push({
         filename: `${invoice_code}.pdf`,
-        content: Buffer.from(pdf_base64, "base64"),
+        content: pdf_base64,
         contentType: "application/pdf",
       });
     }
 
-    const mailOptions = {
-      from: `"Thịnh Lợi Quản Lý Kho" <${gmailUser}>`,
+    // Gửi email qua kết nối bảo mật SMTP TLS trực tiếp tới Gmail (100% native, không lo lỗi thiếu thư viện)
+    const result = await sendSmtpEmail({
+      user: gmailUser,
+      pass: gmailPass,
       to: manager_email,
       subject: `[Thịnh Lợi] Hóa đơn ${invoice_code} đã thanh toán thành công - ${formattedAmount}`,
       html: htmlContent,
       attachments,
-    };
-
-    const info = await transporter.sendMail(mailOptions);
+    });
 
     return res.status(200).json({
       success: true,
-      messageId: info.messageId,
       sentTo: manager_email,
+      info: result,
     });
   } catch (error) {
     console.error("Lỗi gửi email:", error);
@@ -135,4 +239,3 @@ export default async function handler(req, res) {
     });
   }
 }
-
