@@ -698,6 +698,21 @@ class AppStore extends ChangeNotifier {
     await loadRemoteData();
   }
 
+  Future<void> removeSalesOrder(String id) async {
+    final order = salesOrders.where((value) => value.id == id).firstOrNull;
+    if (order == null) return;
+    if (order.status != SalesOrderStatus.draft) {
+      throw const AppFailure('Chỉ có thể xóa đơn bán hàng nháp.');
+    }
+    if (!isRemote) {
+      salesOrders.remove(order);
+      notifyListeners();
+      return;
+    }
+    await SalesOrderRepository(_client!).removeDraft(id);
+    await loadRemoteData();
+  }
+
   Future<void> finalizeInvoice(Invoice invoice) async {
     if (!isRemote) {
       invoice.draft = false;

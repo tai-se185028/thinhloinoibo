@@ -333,6 +333,12 @@ class SalesOrderRepository extends SupabaseRepository {
   Future<void> confirm(String id) => guard(() async {
     await client.rpc('confirm_sales_order', params: {'p_sales_order_id': id});
   });
+  Future<void> removeDraft(String id) => guard(() async {
+    await client.rpc(
+      'delete_sales_order_draft',
+      params: {'p_sales_order_id': id},
+    );
+  });
 }
 
 class InvoiceRepository extends SupabaseRepository {

@@ -1,8 +1,9 @@
-# PackFlow
+# Thịnh Lợi
 
 ```text
 D:\ThinhLoi
 ├── frontend\   Flutter Web/Android
+├── frontend-react\   React Web
 └── backend\    Supabase PostgreSQL, RLS, RPC, Storage migrations
 ```
 
@@ -19,3 +20,12 @@ Scripts đọc biến môi trường PowerShell hoặc `frontend/.env.local` và
 ## Backend
 
 Xem [backend/README.md](backend/README.md) để triển khai migration và tạo admin đầu tiên.
+
+## Chạy React Web
+
+```powershell
+cd D:\ThinhLoi\frontend-react
+Copy-Item .env.example .env.local
+npm install
+npm run dev
+```

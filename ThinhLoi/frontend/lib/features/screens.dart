@@ -107,11 +107,6 @@ class DashboardScreen extends StatelessWidget {
                     'Xuất kho',
                     () => context.go('/outbound'),
                   ),
-                  _Quick(
-                    Icons.post_add_rounded,
-                    'Tạo hóa đơn',
-                    () => context.go('/invoices/new'),
-                  ),
                 ],
               ),
             ),

@@ -35,26 +35,42 @@ class SalesOrdersScreen extends StatelessWidget {
                     ),
                     isThreeLine: true,
                     trailing: order.status == SalesOrderStatus.draft
-                        ? FilledButton.tonal(
-                            onPressed: () async {
-                              try {
-                                await store.confirmSalesOrder(order.id);
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Đã xác nhận đơn hàng.'),
-                                    ),
-                                  );
-                                }
-                              } catch (error) {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text(error.toString())),
-                                  );
-                                }
-                              }
-                            },
-                            child: const Text('Xác nhận'),
+                        ? Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                tooltip: 'Xóa đơn nháp',
+                                icon: const Icon(Icons.delete_outline),
+                                onPressed: () => _delete(context, store, order),
+                              ),
+                              FilledButton.tonal(
+                                onPressed: () async {
+                                  try {
+                                    await store.confirmSalesOrder(order.id);
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'Đã xác nhận đơn hàng.',
+                                              ),
+                                            ),
+                                          );
+                                    }
+                                  } catch (error) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                            SnackBar(
+                                              content: Text(error.toString()),
+                                            ),
+                                          );
+                                    }
+                                  }
+                                },
+                                child: const Text('Xác nhận'),
+                              ),
+                            ],
                           )
                         : Text(_status(order.status)),
                   ),
@@ -62,6 +78,44 @@ class SalesOrdersScreen extends StatelessWidget {
               },
             ),
     );
+  }
+
+  Future<void> _delete(
+    BuildContext context,
+    AppStore store,
+    SalesOrder order,
+  ) async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Xóa đơn bán hàng nháp?'),
+        content: Text('Dữ liệu ${order.code} sẽ bị xóa vĩnh viễn.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Xóa đơn'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !context.mounted) return;
+    try {
+      await store.removeSalesOrder(order.id);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Đã xóa đơn bán hàng nháp.')),
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
   }
 
   String _status(SalesOrderStatus status) => switch (status) {
