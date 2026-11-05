@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import {
   BarChart3,
@@ -24,6 +24,7 @@ import {
   UserRound,
   Users,
   Warehouse,
+  X,
 } from "lucide-react";
 import { supabase, configured, message } from "@/lib/supabase";
 import { cn } from "cn";
@@ -1530,6 +1531,7 @@ function PlateEditDialog({ open, onClose, setOpen, target, voucher }) {
     const ok = await d.run(async () => {
       // 1. Thử gọi RPC update_outbound_vehicle_plate (vượt qua RLS, hỗ trợ mọi trạng thái)
       let rpcOk = false;
+      let rpcErrMsg = "";
       try {
         const rpcRes = await supabase.rpc("update_outbound_vehicle_plate", {
           p_voucher_id: effectiveTarget?.voucherId || null,
@@ -1539,9 +1541,11 @@ function PlateEditDialog({ open, onClose, setOpen, target, voucher }) {
         if (!rpcRes.error) {
           rpcOk = true;
         } else {
+          rpcErrMsg = rpcRes.error.message || "";
           console.warn("RPC failed, trying direct update:", rpcRes.error);
         }
       } catch (e) {
+        rpcErrMsg = e.message || "";
         console.warn("RPC error:", e);
       }
 
@@ -1549,32 +1553,34 @@ function PlateEditDialog({ open, onClose, setOpen, target, voucher }) {
 
       // 2. Fallback cập nhật trực tiếp qua Supabase client
       let rowsUpdated = 0;
+      let directError = null;
+
       if (effectiveTarget?.voucherId) {
         const directRes = await supabase
           .from("outbound_vouchers")
           .update({ vehicle_plate: normalized })
           .eq("id", effectiveTarget.voucherId)
           .select("id");
-        if (directRes.error) throw directRes.error;
+        if (directRes.error) directError = directRes.error;
         if (directRes.data?.length) rowsUpdated += directRes.data.length;
       }
 
       if (effectiveTarget?.invoiceId) {
-        try {
-          const invRes = await supabase
-            .from("invoices")
-            .update({ vehicle_plate: normalized })
-            .eq("id", effectiveTarget.invoiceId)
-            .select("id");
-          if (invRes.data?.length) rowsUpdated += invRes.data.length;
-        } catch {
-          // Bỏ qua nếu bảng invoices chưa có cột vehicle_plate
-        }
+        const invRes = await supabase
+          .from("invoices")
+          .update({ vehicle_plate: normalized })
+          .eq("id", effectiveTarget.invoiceId)
+          .select("id");
+        if (invRes.error && !directError) directError = invRes.error;
+        if (invRes.data?.length) rowsUpdated += invRes.data.length;
       }
 
       if (rowsUpdated === 0) {
+        const detail = directError?.message || rpcErrMsg || "";
         throw new Error(
-          "Cơ sở dữ liệu đang khóa cập nhật chứng từ này do chưa phân quyền hoặc chứng từ đã khóa. Vui lòng chạy file migration SQL trên Supabase SQL Editor để mở quyền cho mọi trạng thái.",
+          detail
+            ? `Cơ sở dữ liệu báo lỗi: ${detail}. Vui lòng chạy file migration SQL trên Supabase SQL Editor.`
+            : "Cơ sở dữ liệu đang khóa cập nhật chứng từ này do chưa phân quyền hoặc chứng từ đã khóa. Vui lòng chạy file migration SQL trên Supabase SQL Editor để mở quyền cho mọi trạng thái.",
         );
       }
     }, "Đã cập nhật biển số xe thành công.");
@@ -1797,10 +1803,70 @@ function TxForm({ open, setOpen, kind }) {
 function Docs() {
   const d = useD(),
     [open, setOpen] = useState(false),
-    [plateTarget, setPlateTarget] = useState(null);
+    [plateTarget, setPlateTarget] = useState(null),
+    [search, setSearch] = useState(""),
+    [statusFilter, setStatusFilter] = useState("all"),
+    [customerFilter, setCustomerFilter] = useState("all"),
+    [productFilter, setProductFilter] = useState("all");
+
   const invoicedIds = new Set(
     d.invoices.map((invoice) => invoice.outbound_voucher_id).filter(Boolean),
   );
+
+  // Danh sách sản phẩm khả dụng (nếu đã lọc đối tác thì ưu tiên/hiển thị sản phẩm đối tác đã mua)
+  const availableProducts = useMemo(() => {
+    if (customerFilter === "all") return d.products;
+    const pIds = new Set();
+    d.outs.forEach((v) => {
+      if (v.customer_id === customerFilter) {
+        (v.outbound_items || []).forEach((it) => {
+          if (it.product_id) pIds.add(it.product_id);
+        });
+      }
+    });
+    const list = d.products.filter((p) => pIds.has(p.id));
+    return list.length > 0 ? list : d.products;
+  }, [d.outs, d.products, customerFilter]);
+
+  const filteredOuts = useMemo(() => {
+    return d.outs.filter((x) => {
+      if (statusFilter !== "all" && x.status !== statusFilter) return false;
+      if (customerFilter !== "all" && x.customer_id !== customerFilter) return false;
+      if (productFilter !== "all") {
+        const hasProd = (x.outbound_items || []).some(
+          (item) => item.product_id === productFilter,
+        );
+        if (!hasProd) return false;
+      }
+      if (search.trim()) {
+        const q = search.trim().toLowerCase();
+        const codeMatch = x.voucher_code?.toLowerCase().includes(q);
+        const customerName = (
+          d.customers.find((c) => c.id === x.customer_id)?.name || ""
+        ).toLowerCase();
+        const customerMatch = customerName.includes(q);
+        const plateMatch = (x.vehicle_plate || "").toLowerCase().includes(q);
+        const itemsMatch = (x.outbound_items || []).some((item) => {
+          const pName = (
+            d.products.find((p) => p.id === item.product_id)?.name || ""
+          ).toLowerCase();
+          const manualCode = (item.manual_code || "").toLowerCase();
+          return pName.includes(q) || manualCode.includes(q);
+        });
+        if (!codeMatch && !customerMatch && !plateMatch && !itemsMatch) return false;
+      }
+      return true;
+    });
+  }, [
+    d.outs,
+    d.customers,
+    d.products,
+    statusFilter,
+    customerFilter,
+    productFilter,
+    search,
+  ]);
+
   return (
     <P
       t="Phiếu xuất kho"
@@ -1812,8 +1878,101 @@ function Docs() {
         </Button>
       }
     >
+      {/* Thanh tìm kiếm và bộ lọc */}
+      <div className="mb-4 flex flex-col gap-3 rounded-xl border border-slate-200/80 bg-white p-3 shadow-sm md:flex-row md:items-center md:justify-between">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Tìm theo mã phiếu, đối tác, biển số, tên sản phẩm…"
+            className="pl-9 pr-8"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[145px]">
+              <SelectValue placeholder="Trạng thái" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả trạng thái</SelectItem>
+              <SelectItem value="draft">Bản nháp</SelectItem>
+              <SelectItem value="confirmed">Đã xác nhận</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={customerFilter}
+            onValueChange={(val) => {
+              setCustomerFilter(val);
+              setProductFilter("all");
+            }}
+          >
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="Đối tác" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả đối tác</SelectItem>
+              {d.customers.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={productFilter} onValueChange={setProductFilter}>
+            <SelectTrigger className="w-[170px]">
+              <SelectValue placeholder="Sản phẩm" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả sản phẩm</SelectItem>
+              {availableProducts.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {(search ||
+            statusFilter !== "all" ||
+            customerFilter !== "all" ||
+            productFilter !== "all") && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSearch("");
+                setStatusFilter("all");
+                setCustomerFilter("all");
+                setProductFilter("all");
+              }}
+              className="h-9 px-2 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <X className="mr-1 size-3.5" /> Xóa lọc
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="mb-2 flex items-center justify-between px-1 text-xs text-muted-foreground">
+        <span>
+          Hiển thị <strong>{filteredOuts.length}</strong> / {d.outs.length} phiếu xuất
+        </span>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-2">
-        {d.outs.map((x) => (
+        {filteredOuts.map((x) => (
           <Card key={x.id}>
             <CardHeader>
               <div className="flex justify-between">
@@ -1869,9 +2028,64 @@ function Docs() {
                 </div>
               )}
             </CardHeader>
-            <CardContent className="text-lg font-bold">
-              {cash(x.total_amount)}
+
+            <CardContent className="space-y-3 pt-1">
+              {/* Danh sách tiêu đề / tên sản phẩm */}
+              <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-2.5">
+                <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase text-slate-500">
+                  <Box className="size-3.5 text-primary" />
+                  <span>Sản phẩm ({(x.outbound_items || []).length})</span>
+                </div>
+                {(x.outbound_items || []).length > 0 ? (
+                  <div className="space-y-1.5">
+                    {x.outbound_items.map((item, idx) => {
+                      const product = d.products.find(
+                        (p) => p.id === item.product_id,
+                      );
+                      const productName = product?.name || "Sản phẩm";
+                      const qty = item.actual_quantity ?? item.quantity;
+                      const unit = product?.unit ? ` ${product.unit}` : "";
+                      return (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between text-xs"
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                            <span
+                              className="font-semibold text-slate-800 truncate"
+                              title={productName}
+                            >
+                              • {productName}
+                            </span>
+                            {item.manual_code && (
+                              <span className="shrink-0 rounded bg-blue-100 px-1 py-0.5 text-[10px] font-mono font-medium text-blue-700">
+                                #{item.manual_code}
+                              </span>
+                            )}
+                          </div>
+                          <span className="shrink-0 font-medium text-slate-600">
+                            SL: <strong className="text-slate-900">{qty}</strong>{unit}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs italic text-muted-foreground">
+                    Không có chi tiết sản phẩm
+                  </p>
+                )}
+              </div>
+
+              {/* Tổng tiền */}
+              <div className="flex items-baseline justify-between pt-0.5">
+                <span className="text-xs text-muted-foreground">Tổng tiền:</span>
+                <span className="text-lg font-bold text-slate-900">
+                  {cash(x.total_amount)}
+                </span>
+              </div>
             </CardContent>
+
             <CardFooter className="justify-end gap-2">
               {x.status === "draft" && (
                 <>
@@ -2099,42 +2313,195 @@ function Orders() {
 }
 function Invoices() {
   const d = useD(),
-    [open, setOpen] = useState(false),
     [plateTarget, setPlateTarget] = useState(null),
-    [lines, setLines] = useState([]),
-    [customer, setCustomer] = useState("");
-  async function save(e) {
-    e.preventDefault();
-    await d.run(async () => {
-      const id = customer || d.customers[0]?.id;
-      if (!id) throw new Error("Vui lòng thêm và chọn khách hàng.");
-      validLines(lines);
-      const { error } = await supabase.rpc("create_invoice_draft", {
-        p_customer_id: id,
-        p_outbound_voucher_id: null,
-        p_discount_amount: 0,
-        p_items: lines.map((x) => ({
-          ...x,
-          description: d.products.find((p) => p.id === x.product_id)?.name,
-        })),
-      });
-      if (error) throw error;
-    }, "Đã tạo hóa đơn.");
-    setOpen(false);
-  }
+    [search, setSearch] = useState(""),
+    [statusFilter, setStatusFilter] = useState("all"),
+    [paymentFilter, setPaymentFilter] = useState("all"),
+    [customerFilter, setCustomerFilter] = useState("all"),
+    [productFilter, setProductFilter] = useState("all");
+
+  // Danh sách sản phẩm khả dụng (nếu đã lọc đối tác thì ưu tiên/hiển thị sản phẩm đối tác đã mua trong hóa đơn)
+  const availableProducts = useMemo(() => {
+    if (customerFilter === "all") return d.products;
+    const pIds = new Set();
+    d.invoices.forEach((inv) => {
+      if (inv.customer_id === customerFilter) {
+        (inv.invoice_items || []).forEach((it) => {
+          if (it.product_id) pIds.add(it.product_id);
+        });
+      }
+    });
+    const list = d.products.filter((p) => pIds.has(p.id));
+    return list.length > 0 ? list : d.products;
+  }, [d.invoices, d.products, customerFilter]);
+
+  const filteredInvoices = useMemo(() => {
+    return d.invoices.filter((x) => {
+      if (statusFilter !== "all" && x.status !== statusFilter) return false;
+      if (paymentFilter !== "all" && x.payment_status !== paymentFilter) return false;
+      if (customerFilter !== "all" && x.customer_id !== customerFilter) return false;
+      if (productFilter !== "all") {
+        const hasProd = (x.invoice_items || []).some(
+          (item) => item.product_id === productFilter,
+        );
+        if (!hasProd) return false;
+      }
+      if (search.trim()) {
+        const q = search.trim().toLowerCase();
+        const code = (x.invoice_code || "").toLowerCase();
+        const custName = (
+          d.customers.find((c) => c.id === x.customer_id)?.name || ""
+        ).toLowerCase();
+        const plate = (x.vehicle_plate || "").toLowerCase();
+        const linkedVoucher = d.outs.find(
+          (voucher) => voucher.id === x.outbound_voucher_id,
+        );
+        const linkedPlate = (linkedVoucher?.vehicle_plate || "").toLowerCase();
+        const matchItem = (x.invoice_items || []).some((item) => {
+          const pName = (
+            item.description ||
+            d.products.find((p) => p.id === item.product_id)?.name ||
+            ""
+          ).toLowerCase();
+          return pName.includes(q);
+        });
+        if (
+          !code.includes(q) &&
+          !custName.includes(q) &&
+          !plate.includes(q) &&
+          !linkedPlate.includes(q) &&
+          !matchItem
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [
+    d.invoices,
+    d.customers,
+    d.products,
+    d.outs,
+    search,
+    statusFilter,
+    paymentFilter,
+    customerFilter,
+    productFilter,
+  ]);
+
   return (
     <P
       t="Hóa đơn"
       d="Phát hành và theo dõi thanh toán"
-      a={
-        <Button onClick={() => setOpen(true)}>
-          <Plus />
-          Tạo hóa đơn
-        </Button>
-      }
     >
+      {/* Tìm kiếm và Bộ lọc */}
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Tìm theo mã HĐ, khách hàng, biển số xe, tên sản phẩm..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8 pr-8"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[145px]">
+              <SelectValue placeholder="Trạng thái" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả trạng thái</SelectItem>
+              <SelectItem value="draft">Bản nháp</SelectItem>
+              <SelectItem value="finalized">Đã phát hành</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={paymentFilter} onValueChange={setPaymentFilter}>
+            <SelectTrigger className="w-[155px]">
+              <SelectValue placeholder="Thanh toán" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả thanh toán</SelectItem>
+              <SelectItem value="unpaid">Chưa thanh toán</SelectItem>
+              <SelectItem value="paid">Đã thanh toán</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={customerFilter}
+            onValueChange={(val) => {
+              setCustomerFilter(val);
+              setProductFilter("all");
+            }}
+          >
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="Đối tác" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả đối tác</SelectItem>
+              {d.customers.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={productFilter} onValueChange={setProductFilter}>
+            <SelectTrigger className="w-[170px]">
+              <SelectValue placeholder="Sản phẩm" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả sản phẩm</SelectItem>
+              {availableProducts.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {(search ||
+            statusFilter !== "all" ||
+            paymentFilter !== "all" ||
+            customerFilter !== "all" ||
+            productFilter !== "all") && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSearch("");
+                setStatusFilter("all");
+                setPaymentFilter("all");
+                setCustomerFilter("all");
+                setProductFilter("all");
+              }}
+              className="h-9 px-2 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <X className="mr-1 size-3.5" /> Xóa lọc
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="mb-2 flex items-center justify-between px-1 text-xs text-muted-foreground">
+        <span>
+          Hiển thị <strong>{filteredInvoices.length}</strong> / {d.invoices.length} hóa đơn
+        </span>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-2">
-        {d.invoices.map((x) => {
+        {filteredInvoices.map((x) => {
           const linkedVoucher = d.outs.find(
             (voucher) => voucher.id === x.outbound_voucher_id,
           );
@@ -2202,8 +2569,64 @@ function Invoices() {
                   </div>
                 )}
               </CardHeader>
-              <CardContent className="text-xl font-bold">
-                {cash(x.total_amount)}
+              <CardContent className="space-y-3 pt-1">
+                {/* Danh sách tiêu đề / tên sản phẩm */}
+                <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-2.5">
+                  <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase text-slate-500">
+                    <Box className="size-3.5 text-primary" />
+                    <span>Sản phẩm ({(x.invoice_items || []).length})</span>
+                  </div>
+                  {(x.invoice_items || []).length > 0 ? (
+                    <div className="space-y-1.5">
+                      {x.invoice_items.map((item, idx) => {
+                        const product = d.products.find(
+                          (p) => p.id === item.product_id,
+                        );
+                        const productName =
+                          item.description || product?.name || "Sản phẩm";
+                        const qty = item.quantity;
+                        const unit = product?.unit ? ` ${product.unit}` : "";
+                        return (
+                          <div
+                            key={idx}
+                            className="flex items-center justify-between text-xs"
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                              <span
+                                className="font-semibold text-slate-800 truncate"
+                                title={productName}
+                              >
+                                • {productName}
+                              </span>
+                            </div>
+                            <div className="shrink-0 flex items-center gap-2">
+                              <span className="font-medium text-slate-600">
+                                SL: <strong className="text-slate-900">{qty}</strong>{unit}
+                              </span>
+                              {item.unit_price > 0 && (
+                                <span className="text-[11px] text-muted-foreground">
+                                  ({cash(item.unit_price)})
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs italic text-muted-foreground">
+                      Không có chi tiết sản phẩm
+                    </p>
+                  )}
+                </div>
+
+                {/* Tổng tiền */}
+                <div className="flex items-baseline justify-between pt-0.5">
+                  <span className="text-xs text-muted-foreground">Tổng tiền:</span>
+                  <span className="text-xl font-bold text-slate-900">
+                    {cash(x.total_amount)}
+                  </span>
+                </div>
               </CardContent>
               <CardFooter className="flex-wrap justify-end gap-2">
                 {x.status === "draft" && (
@@ -2327,35 +2750,7 @@ function Invoices() {
           );
         })}
       </div>
-      <Modal
-        open={open}
-        setOpen={setOpen}
-        title="Tạo hóa đơn nội bộ"
-        save={save}
-      >
-        {d.customers.length ? (
-          <F l="Khách hàng" required>
-            <Select
-              value={customer || d.customers[0].id}
-              onValueChange={setCustomer}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {d.customers.map((x) => (
-                  <SelectItem key={x.id} value={x.id}>
-                    {x.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </F>
-        ) : (
-          <p className="text-sm text-destructive">Chưa có khách hàng.</p>
-        )}
-        <Lines v={lines} setV={setLines} />
-      </Modal>
+      {!filteredInvoices.length && <Empty />}
       <PlateEditDialog
         open={Boolean(plateTarget)}
         onClose={() => setPlateTarget(null)}

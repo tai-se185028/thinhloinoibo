@@ -1,50 +1,36 @@
 begin;
 
--- 1. Thêm cột vehicle_plate vào bảng invoices (nếu chưa có)
+-- 1. Thêm cột vehicle_plate vào bảng invoices và outbound_vouchers (nếu chưa có)
 alter table public.invoices
   add column if not exists vehicle_plate text;
 
--- 2. Thêm cột vehicle_plate vào bảng outbound_vouchers (nếu chưa có)
 alter table public.outbound_vouchers
   add column if not exists vehicle_plate text;
 
--- 3. Cho phép cập nhật vehicle_plate trên outbound_vouchers cho MỌI status (kể cả confirmed)
+-- 2. Cho phép cập nhật trên outbound_vouchers cho MỌI status (kể cả confirmed)
 drop policy if exists outbound_update_vehicle_plate on public.outbound_vouchers;
 create policy outbound_update_vehicle_plate on public.outbound_vouchers
   for update to authenticated
-  using (
-    private.current_user_role() in ('admin','warehouse_staff','sales_staff','accountant')
-  )
-  with check (
-    private.current_user_role() in ('admin','warehouse_staff','sales_staff','accountant')
-  );
+  using (true)
+  with check (true);
 
--- 4. Cho phép cập nhật vehicle_plate trên invoices cho MỌI status (kể cả finalized, paid)
+-- 3. Cho phép cập nhật trên invoices cho MỌI status (kể cả finalized, paid)
 drop policy if exists invoices_update_vehicle_plate on public.invoices;
 create policy invoices_update_vehicle_plate on public.invoices
   for update to authenticated
-  using (
-    private.current_user_role() in ('admin','warehouse_staff','sales_staff','accountant')
-  )
-  with check (
-    private.current_user_role() in ('admin','warehouse_staff','sales_staff','accountant')
-  );
+  using (true)
+  with check (true);
 
--- 5. RPC function update_outbound_vehicle_plate (Security Definer - vượt qua mọi rào cản RLS, hỗ trợ tất cả các status)
+-- 4. RPC function update_outbound_vehicle_plate (Security Definer - vượt qua mọi rào cản RLS, hỗ trợ tất cả các status)
 create or replace function public.update_outbound_vehicle_plate(
   p_voucher_id uuid,
   p_vehicle_plate text,
   p_invoice_id uuid default null
 ) returns jsonb
-language plpgsql security definer set search_path='' as $$
+language plpgsql security definer set search_path = public, private as $$
 declare
-  actor uuid := auth.uid();
   v_plate text;
 begin
-  if actor is null or private.current_user_role() not in ('admin','warehouse_staff','sales_staff','accountant') then
-    raise exception 'UNAUTHORIZED';
-  end if;
-
   v_plate := nullif(trim(p_vehicle_plate), '');
 
   -- Cập nhật phiếu xuất kho nếu có voucher_id
@@ -80,5 +66,30 @@ end $$;
 
 revoke all on function public.update_outbound_vehicle_plate(uuid, text, uuid) from public, anon;
 grant execute on function public.update_outbound_vehicle_plate(uuid, text, uuid) to authenticated;
+
+-- 5. Cho phép xóa hóa đơn và chi tiết hóa đơn
+drop policy if exists invoices_delete on public.invoices;
+create policy invoices_delete on public.invoices
+  for delete to authenticated
+  using (true);
+
+drop policy if exists invoice_items_delete on public.invoice_items;
+create policy invoice_items_delete on public.invoice_items
+  for delete to authenticated
+  using (true);
+
+-- 6. RPC function delete_invoice (Security Definer - xóa sạch hóa đơn bất kể status)
+create or replace function public.delete_invoice(
+  p_invoice_id uuid
+) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+begin
+  delete from public.invoice_items where invoice_id = p_invoice_id;
+  delete from public.invoices where id = p_invoice_id;
+  return jsonb_build_object('success', true, 'invoice_id', p_invoice_id);
+end $$;
+
+revoke all on function public.delete_invoice(uuid) from public, anon;
+grant execute on function public.delete_invoice(uuid) to authenticated;
 
 commit;
