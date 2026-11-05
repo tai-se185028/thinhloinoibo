@@ -9,8 +9,10 @@ import {
   EyeOff,
   ClipboardList,
   Gauge,
+  KeyRound,
   LogOut,
   Menu,
+  Pencil,
   Plus,
   Receipt,
   Search,
@@ -94,11 +96,13 @@ import {
   previewOutboundPdf,
 } from "@/features/documents/pdf";
 import { issueInvoiceForOutbound } from "@/services/invoice-service";
+import { sendPaidInvoiceEmail } from "@/services/email-service";
 import {
   formatCurrency as cash,
   formatDate as dt,
   formatIntegerInput,
   formatVehiclePlate,
+  isValidVehiclePlate,
 } from "@/lib/formatters";
 import { statusLabels as st } from "@/config/statuses";
 const C = createContext(),
@@ -184,6 +188,9 @@ const fieldNames = {
   representative_name: "Người đại diện",
   website: "Website",
   bank_account_number: "Số tài khoản",
+  oldPassword: "Mật khẩu hiện tại",
+  newPassword: "Mật khẩu mới",
+  confirmPassword: "Xác nhận mật khẩu",
 };
 function validateFields(schema, values, setErrors) {
   const result = schema.safeParse(values);
@@ -263,6 +270,29 @@ function Load() {
     </div>
   );
 }
+function GoogleIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5 shrink-0" {...props}>
+      <path
+        fill="#4285F4"
+        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+      />
+    </svg>
+  );
+}
+
 function Login() {
   const [id, setId] = useState(""),
     [pw, setPw] = useState(""),
@@ -342,74 +372,95 @@ function Login() {
     }
   }
   return (
-    <main className="min-h-screen bg-background lg:grid lg:grid-cols-[minmax(420px,0.9fr)_minmax(560px,1.1fr)]">
-      <section className="relative hidden overflow-hidden bg-slate-950 p-12 text-white lg:flex lg:flex-col">
-        <div className="absolute -left-28 top-1/3 size-80 rounded-full bg-blue-500/10 blur-3xl" />
-        <div className="absolute -right-20 bottom-10 size-72 rounded-full bg-cyan-400/10 blur-3xl" />
-        <div className="relative flex items-center gap-3">
-          <div className="grid size-11 place-items-center rounded-xl bg-white text-sm font-black text-slate-950">
+    <main className="min-h-screen bg-slate-50/60 lg:grid lg:grid-cols-[minmax(460px,1fr)_minmax(540px,1.15fr)]">
+      <section className="relative hidden overflow-hidden bg-slate-950 p-12 text-white lg:flex lg:flex-col lg:justify-between shadow-2xl">
+        <div className="absolute -left-28 top-1/4 size-96 rounded-full bg-blue-600/15 blur-[120px]" />
+        <div className="absolute -right-20 bottom-16 size-80 rounded-full bg-indigo-500/15 blur-[100px]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b0a_1px,transparent_1px),linear-gradient(to_bottom,#1e293b0a_1px,transparent_1px)] bg-[size:4rem_4rem]" />
+        
+        <div className="relative flex items-center gap-3.5">
+          <div className="grid size-11 place-items-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-sm font-black text-white shadow-lg shadow-blue-500/30 ring-1 ring-white/20">
             TL
           </div>
           <div>
-            <p className="text-lg font-bold">Thịnh Lợi</p>
-            <p className="text-xs text-slate-400">Quản lý kho hàng</p>
+            <p className="text-lg font-bold tracking-tight text-white">Thịnh Lợi</p>
+            <p className="text-xs text-slate-400">Quản lý kho hàng & nội bộ</p>
           </div>
         </div>
-        <div className="relative my-auto max-w-lg">
-          <Badge className="mb-6 border-white/10 bg-white/10 text-white hover:bg-white/10">
+
+        <div className="relative my-auto max-w-lg py-12">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3.5 py-1 text-xs font-medium text-blue-300 backdrop-blur-sm">
+            <span className="relative flex size-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>
+              <span className="relative inline-flex size-2 rounded-full bg-blue-400"></span>
+            </span>
             Hệ thống quản trị nội bộ
-          </Badge>
-          <h1 className="text-4xl font-bold leading-tight tracking-tight xl:text-5xl">
+          </div>
+
+          <h1 className="text-4xl font-extrabold leading-[1.15] tracking-tight text-white xl:text-5xl">
             Quản lý vận hành
-            <span className="block text-blue-400">đơn giản và chính xác.</span>
+            <span className="mt-1 block bg-gradient-to-r from-blue-400 via-sky-300 to-teal-300 bg-clip-text text-transparent">
+              đơn giản và chính xác.
+            </span>
           </h1>
-          <p className="mt-5 max-w-md text-sm leading-7 text-slate-400">
+
+          <p className="mt-5 max-w-md text-sm leading-relaxed text-slate-300/90">
             Theo dõi sản phẩm, tồn kho, phiếu xuất và hóa đơn trên một hệ thống
-            thống nhất.
+            tập trung, chuẩn hóa quy trình.
           </p>
-          <div className="mt-10 grid gap-4 text-sm text-slate-300">
+
+          <div className="mt-9 grid gap-3 text-sm">
             {[
               "Dữ liệu kho được cập nhật theo thời gian thực",
-              "Phân quyền an toàn cho từng nhân viên",
-              "Chứng từ và hóa đơn rõ ràng, dễ kiểm soát",
+              "Phân quyền an toàn, minh bạch cho từng nhân viên",
+              "Chứng từ và hóa đơn chuẩn hóa, dễ dàng xuất PDF",
             ].map((item) => (
-              <div className="flex items-center gap-3" key={item}>
-                <CheckCircle2 className="size-5 text-blue-400" />
-                {item}
+              <div
+                className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.03] p-3 backdrop-blur-sm transition-colors hover:border-white/10 hover:bg-white/[0.05]"
+                key={item}
+              >
+                <div className="grid size-6 shrink-0 place-items-center rounded-md bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/30">
+                  <CheckCircle2 className="size-3.5" />
+                </div>
+                <span className="font-medium text-slate-200">{item}</span>
               </div>
             ))}
           </div>
         </div>
+
         <p className="relative text-xs text-slate-500">
-          © {new Date().getFullYear()} Thịnh Lợi. Hệ thống dành cho nhân viên.
+          © {new Date().getFullYear()} Công ty TNHH Thịnh Lợi • Dành riêng cho nhân viên nội bộ
         </p>
       </section>
-      <section className="flex min-h-screen items-center justify-center p-5 sm:p-10 lg:p-16">
-        <div className="w-full max-w-[440px]">
-          <div className="mb-10 flex items-center gap-3 lg:hidden">
-            <div className="grid size-10 place-items-center rounded-xl bg-primary text-sm font-black text-primary-foreground">
+
+      <section className="flex min-h-screen items-center justify-center p-4 sm:p-8 lg:p-12">
+        <div className="w-full max-w-[440px] rounded-3xl border border-slate-200/80 bg-white p-7 sm:p-10 shadow-xl shadow-slate-200/50">
+          <div className="mb-8 flex items-center gap-3 lg:hidden">
+            <div className="grid size-10 place-items-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-sm font-black text-white shadow-md shadow-blue-500/20">
               TL
             </div>
             <div>
-              <p className="font-bold">Thịnh Lợi</p>
-              <p className="text-xs text-muted-foreground">Quản lý kho hàng</p>
+              <p className="font-bold text-slate-900">Thịnh Lợi</p>
+              <p className="text-xs text-muted-foreground">Quản lý kho hàng & nội bộ</p>
             </div>
           </div>
-          <div className="mb-8">
-            <div className="mb-5 grid size-12 place-items-center rounded-2xl bg-primary/10 text-primary">
+
+          <div className="mb-7">
+            <div className="mb-4 inline-flex size-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 ring-8 ring-blue-50/50">
               <ShieldCheck className="size-6" />
             </div>
-            <h2 className="text-3xl font-bold tracking-tight">
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
               Chào mừng trở lại
             </h2>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="mt-1.5 text-sm text-slate-500">
               Đăng nhập bằng tài khoản nhân viên đã được cấp quyền.
             </p>
           </div>
-          <form onSubmit={go} className="space-y-5" noValidate>
+
+          <form onSubmit={go} className="space-y-4" noValidate>
             <F l="Tên đăng nhập hoặc email" required error={errors.identifier}>
               <Input
-                className="h-11"
+                className="h-11 rounded-xl border-slate-200 text-slate-900 shadow-sm transition-colors focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20 placeholder:text-slate-400"
                 autoFocus
                 autoComplete="username"
                 placeholder="Nhập tên đăng nhập hoặc email"
@@ -421,7 +472,7 @@ function Login() {
             <F l="Mật khẩu" required error={errors.password}>
               <div className="relative">
                 <Input
-                  className="h-11 pr-11"
+                  className="h-11 rounded-xl border-slate-200 pr-11 text-slate-900 shadow-sm transition-colors focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20 placeholder:text-slate-400"
                   type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
                   placeholder="Nhập mật khẩu"
@@ -433,34 +484,46 @@ function Login() {
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="absolute right-1 top-1 size-9 text-muted-foreground"
+                  className="absolute right-1 top-1 size-9 text-slate-400 hover:text-slate-700"
                   onClick={() => setShowPassword((value) => !value)}
                   aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
                 >
-                  {showPassword ? <EyeOff /> : <Eye />}
+                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                 </Button>
               </div>
             </F>
-            <Button className="h-11 w-full" disabled={busy}>
+            <Button
+              className="mt-2 h-11 w-full rounded-xl bg-slate-900 font-semibold text-white shadow-md shadow-slate-900/10 transition-all hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-900/15 active:scale-[0.99] disabled:opacity-60"
+              disabled={busy}
+            >
               {busy ? "Đang đăng nhập…" : "Đăng nhập"}
             </Button>
           </form>
-          <div className="my-6 flex items-center gap-3">
-            <div className="h-px flex-1 bg-border" />
-            <span className="text-xs text-muted-foreground">hoặc</span>
-            <div className="h-px flex-1 bg-border" />
+
+          <div className="relative my-6 text-center text-xs">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-200" />
+            </div>
+            <span className="relative bg-white px-3 font-medium text-slate-400">
+              hoặc tiếp tục với
+            </span>
           </div>
+
           <Button
+            type="button"
             variant="outline"
-            className="h-11 w-full"
+            className="h-11 w-full gap-3 rounded-xl border-slate-200 bg-white font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 hover:text-slate-900 active:scale-[0.99]"
             disabled={busy}
             onClick={google}
           >
-            Tiếp tục với Google
+            <GoogleIcon />
+            <span>Tiếp tục với Google</span>
           </Button>
-          <p className="mt-8 text-center text-xs leading-5 text-muted-foreground">
-            Chỉ tài khoản nhân viên đang hoạt động mới có thể truy cập hệ thống.
-          </p>
+
+          <div className="mt-8 flex items-center justify-center gap-2 rounded-xl border border-slate-100 bg-slate-50/80 py-2.5 px-3 text-xs text-slate-500">
+            <ShieldCheck className="size-4 text-emerald-600 shrink-0" />
+            <span>Chỉ tài khoản nhân viên đang hoạt động mới có thể truy cập</span>
+          </div>
         </div>
       </section>
       <Toaster richColors />
@@ -1413,6 +1476,144 @@ function Lines({ v, setV, price = "selling_price", showManualCode = false }) {
     </div>
   );
 }
+function PlateEditDialog({ open, onClose, setOpen, target, voucher }) {
+  const d = useD(),
+    [plate, setPlate] = useState(""),
+    [err, setErr] = useState(""),
+    [saving, setSaving] = useState(false);
+
+  const effectiveTarget =
+    target ||
+    (voucher
+      ? {
+          voucherId: voucher.id,
+          plate: voucher.vehicle_plate || "",
+          code: voucher.voucher_code,
+        }
+      : null);
+
+  const handleClose = () => {
+    if (onClose) onClose();
+    if (setOpen) setOpen(false);
+  };
+
+  useEffect(() => {
+    if (open && effectiveTarget) {
+      setPlate(effectiveTarget.plate || "");
+      setErr("");
+    }
+  }, [open, effectiveTarget]);
+
+  async function handleSave(ev) {
+    ev.preventDefault();
+    const raw = plate.trim();
+    if (raw && !isValidVehiclePlate(raw)) {
+      setErr("Biển số không đúng định dạng, ví dụ: 51C - 111.11");
+      return;
+    }
+    setErr("");
+    const normalized = raw ? formatVehiclePlate(raw) : null;
+
+    setSaving(true);
+    const ok = await d.run(async () => {
+      // 1. Thử gọi RPC update_outbound_vehicle_plate (vượt qua RLS, hỗ trợ mọi trạng thái)
+      let rpcOk = false;
+      try {
+        const rpcRes = await supabase.rpc("update_outbound_vehicle_plate", {
+          p_voucher_id: effectiveTarget?.voucherId || null,
+          p_vehicle_plate: normalized,
+          p_invoice_id: effectiveTarget?.invoiceId || null,
+        });
+        if (!rpcRes.error) {
+          rpcOk = true;
+        } else {
+          console.warn("RPC failed, trying direct update:", rpcRes.error);
+        }
+      } catch (e) {
+        console.warn("RPC error:", e);
+      }
+
+      if (rpcOk) return;
+
+      // 2. Fallback cập nhật trực tiếp qua Supabase client
+      let rowsUpdated = 0;
+      if (effectiveTarget?.voucherId) {
+        const directRes = await supabase
+          .from("outbound_vouchers")
+          .update({ vehicle_plate: normalized })
+          .eq("id", effectiveTarget.voucherId)
+          .select("id");
+        if (directRes.error) throw directRes.error;
+        if (directRes.data?.length) rowsUpdated += directRes.data.length;
+      }
+
+      if (effectiveTarget?.invoiceId) {
+        try {
+          const invRes = await supabase
+            .from("invoices")
+            .update({ vehicle_plate: normalized })
+            .eq("id", effectiveTarget.invoiceId)
+            .select("id");
+          if (invRes.data?.length) rowsUpdated += invRes.data.length;
+        } catch {
+          // Bỏ qua nếu bảng invoices chưa có cột vehicle_plate
+        }
+      }
+
+      if (rowsUpdated === 0) {
+        throw new Error(
+          "Cơ sở dữ liệu đang khóa cập nhật chứng từ này do chưa phân quyền hoặc chứng từ đã khóa. Vui lòng chạy file migration SQL trên Supabase SQL Editor để mở quyền cho mọi trạng thái."
+        );
+      }
+    }, "Đã cập nhật biển số xe thành công.");
+    setSaving(false);
+    if (ok) handleClose();
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(val) => !val && handleClose()}>
+      <DialogContent className="sm:max-w-md">
+        <form onSubmit={handleSave} className="space-y-4">
+          <DialogHeader>
+            <DialogTitle>
+              Cập nhật biển số xe giao hàng
+              {effectiveTarget?.code ? ` (${effectiveTarget.code})` : ""}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="plate-input">Biển số xe</Label>
+            <Input
+              id="plate-input"
+              value={plate}
+              onChange={(e) => {
+                setErr("");
+                setPlate(e.target.value.toUpperCase());
+              }}
+              placeholder="Ví dụ: 51C - 111.11"
+              maxLength={20}
+              autoFocus
+            />
+            {err && <p className="text-xs text-destructive">{err}</p>}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={saving}
+              onClick={handleClose}
+            >
+              Hủy
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Đang lưu…" : "Lưu"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function TxForm({ open, setOpen, kind }) {
   const d = useD(),
     [partner, setPartner] = useState(""),
@@ -1421,18 +1622,28 @@ function TxForm({ open, setOpen, kind }) {
     [vehiclePlate, setVehiclePlate] = useState(""),
     [vehicleError, setVehicleError] = useState("");
   const people = kind === "in" ? d.suppliers : d.customers;
+
+  useEffect(() => {
+    if (open) {
+      setPartner(people[0]?.id || "");
+      setLines([
+        { product_id: "", quantity: 1, unit_price: 0, manual_code: "" },
+      ]);
+      setConfirm(false);
+      setVehiclePlate("");
+      setVehicleError("");
+    }
+  }, [open]);
+
   async function save(e) {
     e.preventDefault();
-    const normalizedPlate = formatVehiclePlate(vehiclePlate);
-    if (
-      kind === "out" &&
-      normalizedPlate !== "" &&
-      !/^\d{2}[A-Z]{1,2}[- ]?\d{3,5}(\.\d{2})?$/.test(normalizedPlate)
-    ) {
-      setVehicleError("Biển số không đúng định dạng, ví dụ: 51C-123.45");
+    const rawPlate = vehiclePlate.trim();
+    if (kind === "out" && rawPlate !== "" && !isValidVehiclePlate(rawPlate)) {
+      setVehicleError("Biển số không đúng định dạng, ví dụ: 51C - 111.11");
       return;
     }
     setVehicleError("");
+    const normalizedPlate = rawPlate ? formatVehiclePlate(rawPlate) : "";
     const saved = await d.run(
       async () => {
         const partnerId = partner || people[0]?.id;
@@ -1551,7 +1762,7 @@ function TxForm({ open, setOpen, kind }) {
               setVehiclePlate(event.target.value.toUpperCase());
               if (vehicleError) setVehicleError("");
             }}
-            placeholder="Ví dụ: 51C-123.45"
+            placeholder="Ví dụ: 51C - 111.11"
             maxLength={20}
             autoCapitalize="characters"
             aria-invalid={Boolean(vehicleError)}
@@ -1573,7 +1784,8 @@ function TxForm({ open, setOpen, kind }) {
 }
 function Docs() {
   const d = useD(),
-    [open, setOpen] = useState(false);
+    [open, setOpen] = useState(false),
+    [plateTarget, setPlateTarget] = useState(null);
   const invoicedIds = new Set(
     d.invoices.map((invoice) => invoice.outbound_voucher_id).filter(Boolean),
   );
@@ -1601,10 +1813,45 @@ function Docs() {
                   "Khách hàng không còn tồn tại"}{" "}
                 · {dt(x.voucher_date)}
               </CardDescription>
-              {x.vehicle_plate && (
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <Truck className="size-4" />
-                  Biển số xe: {formatVehiclePlate(x.vehicle_plate)}
+              {x.vehicle_plate ? (
+                <div className="flex items-center justify-between rounded-md bg-muted/60 px-2.5 py-1 text-sm font-semibold">
+                  <div className="flex items-center gap-2">
+                    <Truck className="size-4 text-primary" />
+                    <span>Biển số xe: {formatVehiclePlate(x.vehicle_plate)}</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                    title="Sửa biển số xe"
+                    onClick={() =>
+                      setPlateTarget({
+                        voucherId: x.id,
+                        plate: x.vehicle_plate || "",
+                        code: x.voucher_code,
+                      })
+                    }
+                  >
+                    <Pencil className="size-3" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span className="italic">Chưa có biển số xe</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-1.5 text-xs text-primary"
+                    onClick={() =>
+                      setPlateTarget({
+                        voucherId: x.id,
+                        plate: "",
+                        code: x.voucher_code,
+                      })
+                    }
+                  >
+                    <Plus className="mr-1 size-3" /> Thêm biển số
+                  </Button>
                 </div>
               )}
             </CardHeader>
@@ -1707,6 +1954,11 @@ function Docs() {
       </div>
       {!d.outs.length && <Empty />}
       <TxForm open={open} setOpen={setOpen} kind="out" />
+      <PlateEditDialog
+        open={Boolean(plateTarget)}
+        onClose={() => setPlateTarget(null)}
+        target={plateTarget}
+      />
     </P>
   );
 }
@@ -1834,6 +2086,7 @@ function Orders() {
 function Invoices() {
   const d = useD(),
     [open, setOpen] = useState(false),
+    [plateTarget, setPlateTarget] = useState(null),
     [lines, setLines] = useState([]),
     [customer, setCustomer] = useState("");
   async function save(e) {
@@ -1867,32 +2120,73 @@ function Invoices() {
       }
     >
       <div className="grid gap-4 lg:grid-cols-2">
-        {d.invoices.map((x) => (
-          <Card key={x.id}>
-            <CardHeader>
-              <div className="flex justify-between gap-3">
-                <CardTitle>{x.invoice_code}</CardTitle>
-                <div className="flex flex-wrap gap-2">
-                  <Status v={x.status} />
-                  <Status v={x.payment_status} />
+        {d.invoices.map((x) => {
+          const linkedVoucher = d.outs.find(
+            (voucher) => voucher.id === x.outbound_voucher_id,
+          );
+          const currentPlate = linkedVoucher?.vehicle_plate || x.vehicle_plate;
+          return (
+            <Card key={x.id}>
+              <CardHeader>
+                <div className="flex justify-between gap-3">
+                  <CardTitle>{x.invoice_code}</CardTitle>
+                  <div className="flex flex-wrap gap-2">
+                    <Status v={x.status} />
+                    <Status v={x.payment_status} />
+                  </div>
                 </div>
-              </div>
-              <CardDescription>
-                {d.customers.find((c) => c.id === x.customer_id)?.name ||
-                  "Khách hàng không còn tồn tại"}{" "}
-                · {dt(x.invoice_date)}
-              </CardDescription>
-              {d.outs.find((voucher) => voucher.id === x.outbound_voucher_id)
-                ?.vehicle_plate && (
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <Truck className="size-4" />
-                  Biển số xe: {formatVehiclePlate(
-                    d.outs.find((voucher) => voucher.id === x.outbound_voucher_id)
-                      .vehicle_plate,
-                  )}
-                </div>
-              )}
-            </CardHeader>
+                <CardDescription>
+                  {d.customers.find((c) => c.id === x.customer_id)?.name ||
+                    "Khách hàng không còn tồn tại"}{" "}
+                  · {dt(x.invoice_date)}
+                </CardDescription>
+                {currentPlate ? (
+                  <div className="flex items-center justify-between rounded-md bg-muted/60 px-2.5 py-1 text-sm font-semibold">
+                    <div className="flex items-center gap-2">
+                      <Truck className="size-4 text-primary" />
+                      <span>
+                        Biển số xe:{" "}
+                        {formatVehiclePlate(currentPlate)}
+                      </span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                      title="Sửa biển số xe"
+                      onClick={() =>
+                        setPlateTarget({
+                          voucherId: linkedVoucher?.id || x.outbound_voucher_id || null,
+                          invoiceId: x.id,
+                          plate: currentPlate,
+                          code: x.invoice_code,
+                        })
+                      }
+                    >
+                      <Pencil className="size-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span className="italic">Chưa có biển số xe</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-1.5 text-xs text-primary"
+                      onClick={() =>
+                        setPlateTarget({
+                          voucherId: linkedVoucher?.id || x.outbound_voucher_id || null,
+                          invoiceId: x.id,
+                          plate: "",
+                          code: x.invoice_code,
+                        })
+                      }
+                    >
+                      <Plus className="mr-1 size-3" /> Thêm biển số
+                    </Button>
+                  </div>
+                )}
+              </CardHeader>
             <CardContent className="text-xl font-bold">
               {cash(x.total_amount)}
             </CardContent>
@@ -1938,6 +2232,33 @@ function Invoices() {
                         { p_invoice_id: x.id },
                       );
                       if (error) throw error;
+
+                      // Tự động gửi email kèm file PDF hóa đơn tới Gmail quản lý
+                      const managerEmail = d.settings?.email?.trim();
+                      if (managerEmail) {
+                        toast.info(
+                          `Đang gửi hóa đơn PDF tới Gmail quản lý (${managerEmail})…`
+                        );
+                        sendPaidInvoiceEmail(x, d)
+                          .then((res) => {
+                            if (res.success) {
+                              toast.success(
+                                `Đã gửi hóa đơn PDF thành công tới ${managerEmail}`
+                              );
+                            } else if (res.reason === "service_not_configured") {
+                              toast.warning(
+                                "Chưa cấu hình GMAIL_USER và GMAIL_APP_PASSWORD trên Vercel/Supabase để gửi mail tự động."
+                              );
+                            }
+                          })
+                          .catch((err) => {
+                            console.warn("Lỗi gửi email:", err);
+                          });
+                      } else {
+                        toast.warning(
+                          "Chưa cấu hình Email trong Cài đặt doanh nghiệp để nhận hóa đơn."
+                        );
+                      }
                     }, "Đã cập nhật trạng thái đã thanh toán.")
                   }
                 >
@@ -1958,7 +2279,8 @@ function Invoices() {
               </Button>
             </CardFooter>
           </Card>
-        ))}
+          );
+        })}
       </div>
       <Modal
         open={open}
@@ -1989,6 +2311,11 @@ function Invoices() {
         )}
         <Lines v={lines} setV={setLines} />
       </Modal>
+      <PlateEditDialog
+        open={Boolean(plateTarget)}
+        onClose={() => setPlateTarget(null)}
+        target={plateTarget}
+      />
     </P>
   );
 }
@@ -2215,6 +2542,170 @@ function Profile() {
     </P>
   );
 }
+function ChangePasswordCard() {
+  const d = useD(),
+    [oldPassword, setOldPassword] = useState(""),
+    [newPassword, setNewPassword] = useState(""),
+    [confirmPassword, setConfirmPassword] = useState(""),
+    [showOld, setShowOld] = useState(false),
+    [showNew, setShowNew] = useState(false),
+    [showConfirm, setShowConfirm] = useState(false),
+    [errors, setErrors] = useState({}),
+    [loading, setLoading] = useState(false);
+
+  async function handleChangePassword(e) {
+    e.preventDefault();
+    const val = validateFields(
+      z
+        .object({
+          oldPassword: z.string().min(1, "không được để trống"),
+          newPassword: z.string().min(8, "mật khẩu mới phải có ít nhất 8 ký tự"),
+          confirmPassword: z.string().min(1, "không được để trống"),
+        })
+        .refine((data) => data.newPassword === data.confirmPassword, {
+          message: "Mật khẩu xác nhận không khớp",
+          path: ["confirmPassword"],
+        })
+        .refine((data) => data.oldPassword !== data.newPassword, {
+          message: "Mật khẩu mới không được trùng với mật khẩu hiện tại",
+          path: ["newPassword"],
+        }),
+      { oldPassword, newPassword, confirmPassword },
+      setErrors,
+    );
+    if (!val) return;
+
+    setLoading(true);
+    await d.run(async () => {
+      const email = d.session?.user?.email;
+      if (email) {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password: val.oldPassword,
+        });
+        if (signInError) {
+          throw new Error("Mật khẩu hiện tại không chính xác.");
+        }
+      }
+
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: val.newPassword,
+      });
+      if (updateError) throw updateError;
+
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setErrors({});
+    }, "Đổi mật khẩu thành công!");
+    setLoading(false);
+  }
+
+  return (
+    <Card className="mt-6 border-slate-200 shadow-sm">
+      <CardHeader>
+        <div className="flex items-center gap-2.5">
+          <div className="grid size-9 place-items-center rounded-xl bg-primary/10 text-primary">
+            <KeyRound className="size-5" />
+          </div>
+          <div>
+            <CardTitle className="text-lg">Đổi mật khẩu</CardTitle>
+            <CardDescription>
+              Cập nhật mật khẩu tài khoản của bạn để tăng cường tính bảo mật.
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleChangePassword} className="max-w-xl space-y-4">
+          <F l="Mật khẩu hiện tại" required error={errors.oldPassword}>
+            <div className="relative">
+              <Input
+                type={showOld ? "text" : "password"}
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+                placeholder="Nhập mật khẩu đang sử dụng"
+                className="pr-10"
+                aria-invalid={Boolean(errors.oldPassword)}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1 size-8 text-muted-foreground hover:text-foreground"
+                onClick={() => setShowOld((v) => !v)}
+              >
+                {showOld ? (
+                  <EyeOff className="size-4" />
+                ) : (
+                  <Eye className="size-4" />
+                )}
+              </Button>
+            </div>
+          </F>
+
+          <F l="Mật khẩu mới" required error={errors.newPassword}>
+            <div className="relative">
+              <Input
+                type={showNew ? "text" : "password"}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Tối thiểu 8 ký tự"
+                className="pr-10"
+                aria-invalid={Boolean(errors.newPassword)}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1 size-8 text-muted-foreground hover:text-foreground"
+                onClick={() => setShowNew((v) => !v)}
+              >
+                {showNew ? (
+                  <EyeOff className="size-4" />
+                ) : (
+                  <Eye className="size-4" />
+                )}
+              </Button>
+            </div>
+          </F>
+
+          <F l="Xác nhận mật khẩu mới" required error={errors.confirmPassword}>
+            <div className="relative">
+              <Input
+                type={showConfirm ? "text" : "password"}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Nhập lại mật khẩu mới"
+                className="pr-10"
+                aria-invalid={Boolean(errors.confirmPassword)}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1 size-8 text-muted-foreground hover:text-foreground"
+                onClick={() => setShowConfirm((v) => !v)}
+              >
+                {showConfirm ? (
+                  <EyeOff className="size-4" />
+                ) : (
+                  <Eye className="size-4" />
+                )}
+              </Button>
+            </div>
+          </F>
+
+          <Button type="submit" disabled={loading} className="gap-2">
+            <KeyRound className="size-4" />
+            {loading ? "Đang cập nhật…" : "Cập nhật mật khẩu"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
 function Prefs() {
   const d = useD(),
     [errors, setErrors] = useState({});
@@ -2266,9 +2757,16 @@ function Prefs() {
     }, "Đã lưu cài đặt.");
   }
   return (
-    <P t="Cài đặt" d="Thông tin doanh nghiệp">
-      <Card>
-        <CardContent className="pt-6">
+    <P t="Cài đặt" d="Thông tin doanh nghiệp và tài khoản">
+      <Card className="border-slate-200 shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-lg">Thông tin doanh nghiệp</CardTitle>
+          <CardDescription>
+            Cấu hình thông tin pháp lý, liên hệ và ngân hàng hiển thị trên chứng
+            từ.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
           <form onSubmit={save} className="grid gap-4 md:grid-cols-2">
             {[
               ["Tên doanh nghiệp", "business_name", true, "text"],
@@ -2304,6 +2802,8 @@ function Prefs() {
           </form>
         </CardContent>
       </Card>
+
+      <ChangePasswordCard />
     </P>
   );
 }

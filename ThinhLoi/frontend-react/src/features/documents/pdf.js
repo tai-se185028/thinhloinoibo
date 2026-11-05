@@ -34,10 +34,17 @@ function invoicePdf(invoice, data) {
   const voucher =
     invoice.outbound_voucher_id &&
     data.outs.find((item) => item.id === invoice.outbound_voucher_id);
-  if (voucher) return outboundPdf(voucher, data);
+  if (voucher) {
+    const mergedVoucher = {
+      ...voucher,
+      vehicle_plate: invoice.vehicle_plate || voucher.vehicle_plate,
+    };
+    return outboundPdf(mergedVoucher, data);
+  }
   const customer =
     data.customers.find((item) => item.id === invoice.customer_id) || {};
   const company = data.settings || {};
+  const plate = invoice.vehicle_plate;
   const rows = invoice.invoice_items.map((item, index) => {
     const product = productOf(data.products, item.product_id);
     return [
@@ -71,6 +78,16 @@ function invoicePdf(invoice, data) {
               { text: "(NỘI BỘ)", bold: true },
               invoice.invoice_code,
               new Date(invoice.invoice_date).toLocaleDateString("vi-VN"),
+              ...(plate
+                ? [
+                    {
+                      text: formatVehiclePlate(plate),
+                      bold: true,
+                      fontSize: 13,
+                      margin: [0, 4, 0, 0],
+                    },
+                  ]
+                : []),
             ],
           },
         ],
@@ -199,34 +216,92 @@ function outboundPdf(voucher, data) {
         ],
       },
       {
-        margin: [0, 12],
+        margin: [0, 8, 0, 14],
         table: {
-          widths: [110, "*"],
+          widths: [125, "*"],
           body: [
             [
               {
-                ...centeredCell("TÊN NGƯỜI NHẬN HÀNG", true),
+                text: "TÊN NGƯỜI NHẬN HÀNG :",
+                bold: true,
+                fontSize: 8.5,
+                border: [false, false, false, false],
               },
               {
-                ...centeredCell(customer.name || "", true),
-                fontSize: 10,
+                text: (customer.name || "").toUpperCase(),
+                bold: true,
+                fontSize: 9.5,
+                alignment: "center",
+                border: [false, false, false, true],
               },
             ],
             [
-              centeredCell("ĐỊA CHỈ (BỘ PHẬN)", true),
-              centeredCell(
-                voucher.recipient_department || voucher.delivery_address || "",
-              ),
+              {
+                text: "ĐỊA CHỈ (BỘ PHẬN) :",
+                bold: true,
+                fontSize: 8.5,
+                border: [false, false, false, false],
+              },
+              {
+                text:
+                  voucher.recipient_department ||
+                  voucher.delivery_address ||
+                  "\u00A0",
+                fontSize: 8.5,
+                border: [false, false, false, true],
+              },
             ],
             [
-              centeredCell("LÝ DO XUẤT KHO", true),
-              centeredCell(voucher.dispatch_reason || voucher.note || ""),
+              {
+                text: "LÝ DO XUẤT KHO :",
+                bold: true,
+                fontSize: 8.5,
+                border: [false, false, false, false],
+              },
+              {
+                text:
+                  voucher.dispatch_reason || voucher.note || "\u00A0",
+                fontSize: 8.5,
+                border: [false, false, false, true],
+              },
             ],
             [
-              centeredCell("XUẤT TẠI KHO", true),
-              centeredCell(voucher.destination || ""),
+              {
+                text: "XUẤT TẠI KHO :",
+                bold: true,
+                fontSize: 8.5,
+                border: [false, false, false, false],
+              },
+              {
+                text: voucher.destination || "\u00A0",
+                fontSize: 8.5,
+                border: [false, false, false, true],
+              },
             ],
           ],
+        },
+        layout: {
+          hLineWidth: function () {
+            return 0.5;
+          },
+          vLineWidth: function () {
+            return 0;
+          },
+          hLineColor: function () {
+            return "#475569";
+          },
+          paddingLeft: function (i) {
+            return i === 0 ? 0 : 8;
+          },
+          paddingRight: function () {
+            return 0;
+          },
+          paddingTop: function () {
+            return 4;
+          },
+          paddingBottom: function () {
+            return 2;
+          },
         },
       },
       {
@@ -302,6 +377,19 @@ export function previewInvoicePdf(invoice, data) {
 
 export function downloadInvoicePdf(invoice, data) {
   invoicePdf(invoice, data).download(`${invoice.invoice_code}.pdf`);
+}
+
+export function getInvoicePdfBase64(invoice, data) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = invoicePdf(invoice, data);
+      doc.getBase64((base64) => {
+        resolve(base64);
+      });
+    } catch (err) {
+      reject(err);
+    }
+  });
 }
 
 export function previewOutboundPdf(voucher, data) {
